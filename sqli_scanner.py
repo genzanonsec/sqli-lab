@@ -7,6 +7,22 @@ BANNER = """
 ========================================
 """
 
+SQL_ERROR_MESSAGES = [
+    "unrecognized token",
+    "sqlite error",
+    "sqlite3.error",
+    "sql syntax",
+    "syntax error",
+    "mysql",
+    "postgresql",
+    "postgres",
+    "ora-",
+    "oracle",
+    "microsoft sql server",
+    "odbc",
+    "database error",
+]
+
 
 def build_url(url, parameter, value):
     parsed = urlparse(url)
@@ -48,6 +64,16 @@ def request_page(url):
         return None
 
 
+def check_database_error(response):
+    body = response.text.lower()
+
+    for error_message in SQL_ERROR_MESSAGES:
+        if error_message in body:
+            return error_message
+
+    return None
+
+
 def scan_parameter(url, parameter):
     print(f"\n[*] Testing parameter: {parameter}")
 
@@ -66,6 +92,32 @@ def scan_parameter(url, parameter):
 
     print(f"[+] Normal response: {normal_response.status_code}")
     print(f"[+] Normal response size: {normal_length} bytes")
+
+    print("\n--- Error-Based Test ---")
+
+    error_payload = "1'"
+
+    error_url = build_url(url, parameter, error_payload)
+
+    if error_url:
+        error_response = request_page(error_url)
+
+        if error_response:
+            error_length = len(error_response.text)
+
+            print(f"[*] Payload: {error_payload}")
+            print(f"    Status: {error_response.status_code}")
+            print(f"    Response size: {error_length} bytes")
+
+            database_error = check_database_error(error_response)
+
+            if database_error:
+                print("\n[!] POSSIBLE ERROR-BASED SQL INJECTION")
+                print(f"[+] Database error detected: {database_error}")
+            else:
+                print("[-] No obvious database error detected.")
+
+    print("\n--- Boolean-Based Test ---")
 
     payloads = [
         "1 OR 1=1",
@@ -98,37 +150,22 @@ def scan_parameter(url, parameter):
         print(f"    Status: {response.status_code}")
         print(f"    Response size: {response_length} bytes")
 
-    if len(results) != 2:
-        print("\n[!] Could not complete all tests.")
-        return
+    if len(results) == 2:
+        true_test = results[0]
+        false_test = results[1]
 
-    true_test = results[0]
-    false_test = results[1]
-
-    true_body = true_test["body"]
-    false_body = false_test["body"]
-
-    true_length = true_test["length"]
-    false_length = false_test["length"]
-
-    if (
-        true_test["status"] == 200
-        and false_test["status"] == 200
-        and true_length != false_length
-    ):
-        print("\n[!] POSSIBLE SQL INJECTION")
-        print("[+] The true and false SQL conditions produced different responses.")
-
-    elif (
-        true_test["status"] == 200
-        and false_test["status"] == 200
-        and true_body != false_body
-    ):
-        print("\n[!] POSSIBLE SQL INJECTION")
-        print("[+] The application responded differently to true and false conditions.")
-
-    else:
-        print("\n[-] No obvious SQL injection detected.")
+        if (
+            true_test["status"] == 200
+            and false_test["status"] == 200
+            and (
+                true_test["length"] != false_test["length"]
+                or true_test["body"] != false_test["body"]
+            )
+        ):
+            print("\n[!] POSSIBLE BOOLEAN-BASED SQL INJECTION")
+            print("[+] The true and false SQL conditions produced different responses.")
+        else:
+            print("\n[-] No obvious boolean-based SQL injection detected.")
 
 
 def main():
